@@ -59,6 +59,7 @@ target_include_directories(Embarcatech-U4_adc PRIVATE
 target_link_libraries(Embarcatech-U4_adc 
         hardware_adc
         hardware_pwm
+        hardware_clocks
         )
 
 pico_add_extra_outputs(Embarcatech-U4_adc)
