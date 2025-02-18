@@ -4,7 +4,9 @@
 #include "pico/bootrom.h"
 #include "hardware/pwm.h"
 #include "hardware/clocks.h"
-
+#include "hardware/i2c.h"
+#include "inc/ssd1306.h"
+#include "inc/font.h"
 /**
  * Definições dos pinos GPIOs de entradas/saidas 
  */
@@ -16,6 +18,12 @@
 #define R_LED_PIN 13
 #define B_LED_PIN 12
 #define G_LED_PIN 11
+
+//Definições para o I2C
+#define I2C_PORT i2c1
+#define I2C_SDA 14 
+#define I2C_SCL 15 
+#define address 0x3C
 
 //Valor de WRAP do PWM
 #define PWM_WRAP_VALUE 4096
@@ -30,8 +38,11 @@ uint32_t adc_y_value; //Armazena o valor do eixo y do joystick
 uint red_slice_num; //Armazena o numero de slice pwm do pino de led vermelho
 uint blue_slice_num; //Armazena o numero de slice pwm do pino de led azul
 uint32_t last_time = 0; 
+uint8_t display_x; //Armazena a posição x do quadrado no display
+uint8_t display_y; //Armazena a posição y do quadrado no display
 bool pwm_active = true;
 bool g_led_state = false;
+ssd1306_t ssd;
 
 /**
  * Função de callback para tratamento de acionamento de botões
@@ -55,7 +66,6 @@ void gpio_irq_handler(uint gpio, uint32_t events)
         case JOYSTICK_B: //Alterna o estado do LED verde e muda a borda no display 
             g_led_state = !g_led_state;
             gpio_put(G_LED_PIN, g_led_state);
-            /** @todo Alternar borda no display */
             break;
         }
     }
@@ -115,15 +125,16 @@ uint init_pwm_gpio(uint gpio)
 }
 
 /**
- * Altera a intensidade de um led utilizando PWM
+ * Atualiza a intensidade do brilho do led de acordo com o valor lido do ADC 
  */
-void update_leds_brightness(uint gpio, uint32_t adc_value)
+void update_led_brightness(uint gpio, uint32_t adc_value)
 {
     uint duty_cycle;
 
     /**
-     * Verifica a posição do joystick e calcula o valor do duty cycle para alterar a
-     * intensidade do LED de acordo com a posição lida */ 
+     * Verifica a posição do joystick e calcula o valor do duty cycle para alterar a 
+     * intensidade do brilho do led de acordo com a posição lida 
+     **/ 
     if (adc_value > 1800 && adc_value < 2100)
     {
         duty_cycle = 0;
@@ -137,8 +148,42 @@ void update_leds_brightness(uint gpio, uint32_t adc_value)
     if (duty_cycle < 0) duty_cycle = 0;
     if (duty_cycle > 4095) duty_cycle = 4095;
 
-    //Define o novo valor de DC do led
     pwm_set_gpio_level(gpio, duty_cycle);
+}
+
+/**
+ * Desenha uma borda diferente de acordo com o pressionamento do Botão do Joystick
+ */
+void draw_rectangle()
+{
+    if (!g_led_state)
+    {
+        ssd1306_rect(&ssd, 3, 3, 122, 58, true, false);
+    }else {
+        ssd1306_rect(&ssd, 1, 1, 122, 60, true, false);
+        ssd1306_rect(&ssd, 4, 4, 118, 54, true, false);
+    }
+}
+
+/**
+ * Atualiza a posição do quadrado no display de acordo com os valores
+ * lidos pelo ADC
+ */
+void update_position_on_display()
+{
+    static int last_x = 128 / 2;
+    static int last_y = 64 / 2;
+
+    display_x = adc_x_value * (128-8) / 4095; //Calcula o novo valor da posição x
+    display_y = adc_y_value * (64-8) / 4095; //Calcula o novo valor da posição y
+
+    ssd1306_fill(&ssd, false); //Limpa a tela anterior
+    draw_rectangle(); //Desenha a borda de acordo com o PushBotton do Joystick
+    ssd1306_draw_quad(&ssd, display_x, display_y); //Desenha o quadrado na posição atual
+    ssd1306_send_data(&ssd); //Envia os dados para o display
+
+    last_x = display_x;
+    last_y = display_y;
 }
 
 int main()
@@ -147,6 +192,26 @@ int main()
     stdio_init_all();
     init_joystick();
     init_buttons_leds();
+
+    /**
+     * Configuração do I2C
+     */
+    i2c_init(I2C_PORT, 400*1000);
+    
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA);
+    gpio_pull_up(I2C_SCL);
+
+    /**
+     * Configuração do display
+     */
+    ssd1306_init(&ssd, WIDTH, HEIGHT, false, address, I2C_PORT); // Inicializa o display
+    ssd1306_config(&ssd); // Configura o display
+    ssd1306_send_data(&ssd); // Envia os dados para o display
+    // Limpa o display. O display inicia com todos os pixels apagados.
+    ssd1306_fill(&ssd, false);
+    ssd1306_send_data(&ssd);
 
     //Inicializa os pinos dos leds azul e vermelho como PWM
     red_slice_num = init_pwm_gpio(R_LED_PIN);
@@ -168,9 +233,12 @@ int main()
 
         if (pwm_active) //Verifica se os LEDs PWM estão ativados
         {
-            update_leds_brightness(R_LED_PIN, adc_x_value); //Ajusta o brilho do LED vermelho
-            update_leds_brightness(B_LED_PIN, adc_y_value); //Ajusta o brilho do LED azul
+            update_led_brightness(R_LED_PIN, adc_x_value); //Ajusta o brilho do LED vermelho
+            update_led_brightness(B_LED_PIN, adc_y_value); //Ajusta o brilho do LED azul
         }
+
+        //Desenha o quadrado no display
+        update_position_on_display();
 
         sleep_ms(10);
 

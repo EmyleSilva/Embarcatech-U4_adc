@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Embarcatech-U4_adc Embarcatech-U4_adc.c )
+add_executable(Embarcatech-U4_adc Embarcatech-U4_adc.c inc/ssd1306.c)
 
 pico_set_program_name(Embarcatech-U4_adc "Embarcatech-U4_adc")
 pico_set_program_version(Embarcatech-U4_adc "0.1")
@@ -60,6 +60,7 @@ target_link_libraries(Embarcatech-U4_adc
         hardware_adc
         hardware_pwm
         hardware_clocks
+        hardware_i2c
         )
 
 pico_add_extra_outputs(Embarcatech-U4_adc)
